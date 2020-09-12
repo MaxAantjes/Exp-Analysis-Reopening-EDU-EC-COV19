@@ -17,6 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(openxlsx)
 library(stringr)
 library(tidyverse)
+library(ggfortify)
 ```
 
 
@@ -318,6 +319,14 @@ tsdf <- ts(df3[,  c(5:6)],
            start = c(2007, 1), # End date
            end = c(2019, 1), # Start date
            frequency = 1) # Number of observations per unit time
+```
+
+Step 3: Exploratory analysis of the data
+```{r}
+autoplot(tsdf)
+```
+```{r}
+
 ```
 
 ```{r}

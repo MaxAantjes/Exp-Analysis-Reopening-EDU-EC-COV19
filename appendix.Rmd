@@ -288,8 +288,29 @@ df1 <- df %>%
         #ungroup()
 ```
 
+# Country level time-series regression
+## Calculate Parameters at Country-level 
 
-## Country-level data
+```{r}
+df2 <- df1 %>%
+        filter(finance.source == "public") %>%
+        mutate(public.school.class.size = tot.students/tot.teachers) %>%
+        group_by(year) %>%
+        summarise(median.public.school.class.size = median(public.school.class.size))
+
+missing_to_zero <- function(var){return(ifelse(is.na(var), 0, var))}
+
+df3<- df1 %>%
+        group_by(year, finance.source) %>%
+        summarise(n = sum(tot.students)) %>%
+        pivot_wider(names_from = finance.source, values_from = n) %>%
+        mutate(public = missing_to_zero(public)) %>%
+        mutate(mixed = missing_to_zero(mixed)) %>%
+        mutate(private = missing_to_zero(private)) %>%
+        mutate(proportion.private.students = (private/sum(public, mixed, private))*100) %>%
+        left_join(df2, by = "year") %>%
+        ungroup() 
+```
 
 step 1
 Convert data to an object of class **ts**

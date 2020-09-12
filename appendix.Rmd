@@ -289,8 +289,8 @@ df1 <- df %>%
 ```
 
 # Country level time-series regression
-## Calculate Parameters at Country-level 
 
+## Step 1: Calculate Parameters at Country-level 
 ```{r}
 df2 <- df1 %>%
         filter(finance.source == "public") %>%
@@ -312,12 +312,9 @@ df3<- df1 %>%
         ungroup() 
 ```
 
-step 1
-Convert data to an object of class **ts**
+step 2: Convert data to an object of class **ts**
 ```{r}
-## 
-## No package required
-tsdf <- ts(df4, 
+tsdf <- ts(df3[,  c(5:6)], 
            start = c(2007, 1), # End date
            end = c(2019, 1), # Start date
            frequency = 1) # Number of observations per unit time

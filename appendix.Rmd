@@ -15,7 +15,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(openxlsx)
-library(dplyr)
+library(stringr)
+library(tidyverse)
 ```
 
 
@@ -37,15 +38,16 @@ df <- df %>%
         select(-duplicate) %>%
         mutate(canton = factor(canton))  %>%
         mutate(sostenimiento = factor(sostenimiento, levels = c("Fiscal", "Fiscomisional", "Particular", "Municipal"), labels = c("public", "mixed", "private", "public"))) %>%
-        filter(tot.students != 0)
+        filter(tot.students != 0) %>%
+        filter(total.docentes != 0)
 ```
 
 ```{r}
-df1 <- df %>%
+df2 <- df %>%
         mutate(class.size = tot.students/total.docentes) 
 
-p <- ggplot(data = df1, aes(x = class.size, y = sostenimiento))
-p1 <- p + geom_boxplot() + xlim(0, 50) + facet_grid(~zona.inec)
+p <- ggplot(data = df2, aes(x = class.size, y = sostenimiento))
+p1 <- p + geom_boxplot() + facet_grid(~zona.inec)
 p1
 ```
 
@@ -127,69 +129,104 @@ load.xlsx <- function(x, y, z){
         y <- read.xlsx(x, sheet = y, startRow = z)
         return(y)}
 
+dat1 <- load.xlsx(y2009s, y= 1, z = 11)
+
+dfB <- read.xlsx(y2018s, sheet = 2, startRow = 13)
+dfC <- read.xlsx(y2019s,  sheet = "Registros Administrativos", startRow = 13)
 listA <- lapply(links1, load.xlsx, y = 1, z = 11)
+
 dfA <- do.call(rbind, listA)
 names(dfA) <- replace_special_char(names(dfA))
 dfA1 <- dfA %>%
         select(Periodo, Total.Estudiantes, Total.Docentes, 
-               Nombre.Institucion, Zona.Inec, Sostenimiento)
+               Nombre.Institucion, Zona.Inec, Sostenimiento, Canton, Provincia)
 
 names(dfB) <- replace_special_char(names(dfB))
 dfB1 <- dfB %>%
         select(Periodo, Total.Estudiantes, Total.Docentes, 
-               Nombre.Institucion, Zona.Inec, Sostenimiento)
+               Nombre.Institucion, Zona.Inec, Sostenimiento, Canton, Provincia)
 
 names(dfC) <- replace_special_char(names(dfC))
 names(dfC)[2] <- "duplicate"
 dfC1 <- dfC %>%
         select(-duplicate) %>%
         select(Periodo, "Total.Estudiantes" = 'Total.estudiantes.(Inicial.a.3ro..De.Bachillerato)', 
-               Total.Docentes, Nombre.Institucion, Zona.Inec, Sostenimiento)
+               Total.Docentes, Nombre.Institucion, Zona.Inec, Sostenimiento, Canton, Provincia)
 
 df <- rbind(dfA1, dfB1, dfC1)
+saveRDS(df, "data.rds")
+```
 
+```{r}
+df <- readRDS("data.rds")
 df1 <- df %>%
         select("year" = Periodo, "tot.students" = Total.Estudiantes, 
                "tot.teachers" = Total.Docentes, Sostenimiento, "name" = Nombre.Institucion,
-               "area" = Zona.Inec) %>%
-        mutate(year = str_extract(year, "^[0-9]{4}"))  %>%
-        mutate(year = as.Date(paste0(year, "-01-01"))) %>%
+               "area" = Zona.Inec, Canton, Provincia) %>%
+        mutate(year = str_extract(year, "^[0-9]{4}-[0-9]{4}"))  %>%
+        #mutate(year = as.Date(paste0(year, "-01-01"))) %>%
         mutate(finance.source= factor(Sostenimiento, levels = c("Fiscal", "Fiscomisional", 
                                                                 "Particular", "Municipal",
                                                                 "Particular Laico",
                                                                 "Particular Religioso"), 
                                       labels = c("public", "mixed", "private", "public",
                                                  rep("private", 2)))) %>%
+        mutate(area = str_remove(area, "INEC")) %>%
+        mutate(canton = replace_special_char(Canton)) %>%
         filter(tot.students != 0 & tot.teachers != 0)
 
-dfCS <- df1 %>%
-        filter(finance.source == "public" &
-                 area == "UrbanaINEC") %>%
+df2 <- df1 #%>%
+        #filter(!canton %in% c("SAMBORONDON", "GUAYAQUIL", "DURAN", "RUMINAHUI", "DAULE", "QUITO", "SALINAS"))
+
+dfCS <- df2 %>%
+        filter(finance.source == "public") %>%
         mutate(class.size = tot.students/tot.teachers) %>%
-        group_by(year) %>%
+        group_by(year, canton, area) %>%
         summarise(class.size = median(class.size))
 
-dfPP <- df1 %>%
-        filter(area == "UrbanaINEC") %>%
-        group_by(year, finance.source) %>%
+missing_to_zero <- function(var){return(ifelse(is.na(var), 0, var))}
+
+df3<- df2 %>%
+        group_by(year, finance.source, canton, area) %>%
         summarise(n = sum(tot.students)) %>%
         pivot_wider(names_from = finance.source, values_from = n) %>%
-        mutate(prop = private/sum(public, mixed, private))
+        mutate(public = missing_to_zero(public)) %>%
+        mutate(mixed = missing_to_zero(mixed)) %>%
+        mutate(private = missing_to_zero(private)) %>%
+        mutate(prop = (private/sum(public, mixed, private))*100) %>%
+        left_join(dfCS, by = c("year", "canton", "area")) %>%
+        ungroup() %>%
+        mutate(area = factor(area))
 
-## Proportion of Students enrolled in Private Education
-qplot(y = dfPP$prop, x = dfPP$year)
+df4 <- df3 %>%
+        filter(year %in% c("2010-2011", "2013-2014", "2016-2017", "2019-2020"))# %>%
+        #filter(prop != 0)
 
-## Number of Students per Teacher at Median Public School
-qplot(y = dfCS$class.size, x = dfCS$year)
-qplot(dfPP$prop, dfCS$class.size)
+p <- ggplot(dat = df4, aes(y = class.size, x = prop)) + theme_bw() 
+p1 <- p + geom_point(alpha = 1/2) + facet_grid(area~year)
+p2 <- p1 + geom_smooth(method = "lm", formula = y~x) 
+p3 <- p2 + theme(axis.text.x = element_text(angle = 90)) + labs(
+  x = "Proportion of students enrolled\nin private education (%)", 
+  y = "Median of the average-class-size in public schools",
+  title = "Relationship between private education attendance\nand public school class sizes in Ecuadorian cantons",
+  subtitle = "Data reflects student enrolment and teacher positions at the start of the school year in all\nprimary and secondary education institutions. The average-class-size was first calculated\nfor each school. The median average-class-size was then taken at canton level.", 
+  caption = "AMIE Data collected by INEC (2010-2019)")
+p3
 
+## This suggests that private institutions are concentrated in areas where class sizes are already large. 
+df5 <- df4 %>%
+  filter(area == "Urbana" & year == "2019-2020")
+r <- lm(formula = prop ~ class.size, data = df5)
+summary(r)
+plot(r)
 
-dfB <- read.xlsx(y2018s, sheet = 2, startRow = 13)
-dfC <- read.xlsx(y2019s,  sheet = "Registros Administrativos", startRow = 13)
-rbind(dfA, dfB, dfC)
+### The Bresusch-Pagan Test
+## It involves using a variance function and using a χ2-test to test the null hypothesis that heteroskedasticity is not present (i.e. homoskedastic) against the alternative hypothesis that heteroskedasticity is present.
 
-
-
+df5$resi <- r$residuals
+var.func <- lm(resi^2 ~ class.size, data = df5)
+summary(var.func)
+qchisq(.95, df = 1)
 ```
 
 ```{r}
@@ -212,4 +249,118 @@ name_check <- function(x, y){
 "https://politica.expansion.mx/mexico/2020/08/10/el-covid-19-pone-en-riesgo-a-1-de-cada-4-escuelas-privadas"
 "https://www.elfinanciero.com.mx/empresas/advierten-que-4-de-cada-10-de-escuelas-privadas-cerraran-por-educacion-a-distancia"
 ```
+
+
+Context
+
+Prop of priv/public schools, prop of priv/public teachers, boxplot class sizes. 
+story: private schools have smaller class sizes than public schools. 
+
+Inter American Bank data + Mexico
+Story: migration from private schools to public schools. If situation does not change class sizes in public institutions will grow.
+
+Is there historical evidence?
+We expect it to be a static model instead of a lag model. 
+Test for Autoregressive models of different orders. 
+
+## Clean data set
+```{r}
+df <- readRDS("data.rds")
+df1 <- df %>%
+        select("year" = Periodo, "tot.students" = Total.Estudiantes, 
+               "tot.teachers" = Total.Docentes, Sostenimiento, "name" = Nombre.Institucion,
+               "area" = Zona.Inec, "canton" = Canton, "province" = Provincia) %>%
+        mutate(year = str_extract(year, "^[0-9]{4}"))  %>%
+        mutate(year = as.Date(paste0(year, "-05-01"))) %>%
+        mutate(finance.source = factor(Sostenimiento, levels = c("Fiscal", "Fiscomisional", 
+                                                                "Particular", "Municipal",
+                                                                "Particular Laico",
+                                                                "Particular Religioso"), 
+                                      labels = c("public", "mixed", "private", "public",
+                                                 rep("private", 2)))) %>%
+        select(-Sostenimiento) %>%
+        mutate(area = factor(str_remove(area, "INEC"), 
+               levels = c("Rural", "Urbana"), labels = c("rural", "urban"))) %>%
+        mutate(province = factor(province)) %>%
+        #group_by(province) %>% ## Because some cantons in different provinces have the same names
+        #mutate(canton = factor(replace_special_char(as.character(canton)))) %>%
+        filter(tot.students != 0 & tot.teachers != 0) #%>%
+        #ungroup()
+```
+
+
+## Country-level data
+
+step 1
+Convert data to an object of class **ts**
+```{r}
+## 
+## No package required
+tsdf <- ts(df4, 
+           start = c(2007, 1), # End date
+           end = c(2019, 1), # Start date
+           frequency = 1) # Number of observations per unit time
+```
+
+```{r}
+
+df
+
+df3 <- df2 %>%
+        filter(finance.source == "public") %>%
+        mutate(class.size = tot.students/tot.teachers) %>%
+        group_by(year, canton, area) %>%
+        summarise(class.size = median(class.size))
+
+missing_to_zero <- function(var){return(ifelse(is.na(var), 0, var))}
+
+df4<- df2 %>%
+        group_by(year, finance.source, canton, area) %>%
+        summarise(n = sum(tot.students)) %>%
+        pivot_wider(names_from = finance.source, values_from = n) %>%
+        mutate(public = missing_to_zero(public)) %>%
+        mutate(mixed = missing_to_zero(mixed)) %>%
+        mutate(private = missing_to_zero(private)) %>%
+        mutate(prop = (private/sum(public, mixed, private))*100) %>%
+        left_join(dfCS, by = c("year", "canton", "area")) %>%
+        ungroup() %>%
+        mutate(area = factor(area))
+
+
+p <- ggplot(dat = df4, aes(y = class.size, x = prop)) + theme_bw() 
+p1 <- p + geom_point(alpha = 1/2) + facet_grid(area~year)
+p2 <- p1 + geom_smooth(method = "lm", formula = y~x) 
+p3 <- p2 + theme(axis.text.x = element_text(angle = 90)) + labs(
+  x = "Proportion of students enrolled\nin private education (%)", 
+  y = "Median of the average-class-size in public schools",
+  title = "Relationship between private education attendance\nand public school class sizes in Ecuadorian cantons",
+  subtitle = "Data reflects student enrolment and teacher positions at the start of the school year in all\nprimary and secondary education institutions. The average-class-size was first calculated\nfor each school. The median average-class-size was then taken at canton level.", 
+  caption = "AMIE Data collected by INEC (2010-2019)")
+p3
+
+## This suggests that private institutions are concentrated in areas where class sizes are already large. 
+df5 <- df4 %>%
+  filter(area == "Urbana" & year == "2019-2020")
+r <- lm(formula = prop ~ class.size, data = df5)
+summary(r)
+plot(r)
+
+### The Bresusch-Pagan Test
+## It involves using a variance function and using a χ2-test to test the null hypothesis that heteroskedasticity is not present (i.e. homoskedastic) against the alternative hypothesis that heteroskedasticity is present.
+
+df5$resi <- r$residuals
+var.func <- lm(resi^2 ~ class.size, data = df5)
+summary(var.func)
+qchisq(.95, df = 1)
+```
+
+```{r}
+GDPGR_AR2 <- dynlm(ts(GDPGR_level) ~ L(ts(GDPGR_level)) + L(ts(GDPGR_level), 2))
+```
+
+Why is it bad?
+Private schools concentrated in particular areas (inter American bank data). Furthermore, private schools tend to concentrate in areas where there public school classes are large. 
+
+
+
 

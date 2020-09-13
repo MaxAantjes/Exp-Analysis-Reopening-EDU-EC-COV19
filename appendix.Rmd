@@ -17,7 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(openxlsx)
 library(stringr)
 library(tidyverse)
-library(ggfortify)
+library(xts)
 ```
 
 
@@ -289,6 +289,15 @@ df1 <- df %>%
         #ungroup()
 ```
 
+```{r}
+link <- "http://api.worldbank.org/v2/en/indicator/SE.XPD.TOTL.GD.ZS?downloadformat=csv"
+temp <- tempfile()
+download.file(link, temp, mode = "wb")
+dfEDSP <- read.csv(unz(temp, filename = "API_SE.XPD.TOTL.GD.ZS_DS2_en_csv_v2_1345062.csv"), sep = ",", skip = 4)
+unlink(temp)
+```
+
+
 # Country level time-series regression
 
 ## Step 1: Calculate Parameters at Country-level 
@@ -315,19 +324,42 @@ df3<- df1 %>%
 
 step 2: Convert data to an object of class **ts**
 ```{r}
-tsdf <- ts(df3[,  c(5:6)], 
-           start = c(2007, 1), # End date
-           end = c(2019, 1), # Start date
-           frequency = 1) # Number of observations per unit time
+tsdf <- xts(x = df3[, 5:6], order.by = df3$year) # Number of observations per unit time
 ```
 
 Step 3: Exploratory analysis of the data
-```{r}
-autoplot(tsdf)
-```
-```{r}
+The two  graphs suggest a negative correlation between the two variables. It must be acknowledged here that this correlation could be spurious. For example, Wooldridge stresses that any variables with a systematic negative and positive time trend can easily be misinterpreted to influence one another (p. 365). Such time trends can be accounted for by detrending or deseasonalising the data, i.e. by including time as an independent variable in the regression model. Nevertheless, time trends are plausibly irrelevant in this particular analysis; in the limited set of observations available, neither variable shows a clear linear or seasonal pattern over time. For this reason, I assume that the data need not be detrended nor deseasonalised. 
 
+```{r}
+par(mfrow = c(1,2))
+plot(as.zoo(tsdf[, 1]),
+     col = "blue",
+     lwd = 2,
+     ylab = "Proportion of Private Students",
+     xlab = "Date",
+     main = "Proportion of Ecuadorian learners\nenrolled in Private Schools",
+     cex.main = 1)
+plot(as.zoo(tsdf[, 2]),
+     col = "red",
+     lwd = 2,
+     ylab = "Average-class-size at\nMedian Public School",
+     xlab = "Date",
+     main = "Class size in Public Schools",
+     cex.main = 1)
 ```
+
+```{r}
+par(mfrow = c(1,2))
+acf(tsdf[,1], lag.max = 12)
+acf(tsdf[,2], lag.max = 12)
+## For both variables autocorrelation until the first lag is statistically significant at a 95% confidence level. 
+```
+Step 4: create a model
+```{r}
+coe
+```
+
+
 
 ```{r}
 

@@ -288,7 +288,7 @@ df1 <- df %>%
         filter(tot.students != 0 & tot.teachers != 0) #%>%
         #ungroup()
 ```
-
+https://data.worldbank.org/indicator/SE.XPD.TOTL.GD.ZS?end=2015&locations=EC&start=1998&view=chart
 ```{r}
 link <- "http://api.worldbank.org/v2/en/indicator/SE.XPD.TOTL.GD.ZS?downloadformat=csv"
 temp <- tempfile()
@@ -296,12 +296,20 @@ download.file(link, temp, mode = "wb")
 dfEDSP <- read.csv(unz(temp, filename = "API_SE.XPD.TOTL.GD.ZS_DS2_en_csv_v2_1345062.csv"), sep = ",", skip = 4)
 unlink(temp)
 ```
-
+https://data.worldbank.org/indicator/NY.GDP.MKTP.PP.CD?locations=EC
+```{r}
+link <- "http://api.worldbank.org/v2/en/indicator/NY.GDP.MKTP.PP.CD?downloadformat=csv"
+temp <- tempfile()
+download.file(link, temp, mode = "wb")
+dfGDP <- read.csv(unz(temp, filename = "API_NY.GDP.MKTP.PP.CD_DS2_en_csv_v2_1346510.csv"), sep = ",", skip = 4)
+unlink(temp)
+```
 
 # Country level time-series regression
 
 ## Step 1: Calculate Parameters at Country-level 
 ```{r}
+## Public School Class Size
 df2 <- df1 %>%
         filter(finance.source == "public") %>%
         mutate(public.school.class.size = tot.students/tot.teachers) %>%
@@ -310,6 +318,7 @@ df2 <- df1 %>%
 
 missing_to_zero <- function(var){return(ifelse(is.na(var), 0, var))}
 
+## Proportion of Students Enrolled in Private Education
 df3<- df1 %>%
         group_by(year, finance.source) %>%
         summarise(n = sum(tot.students)) %>%
@@ -320,31 +329,66 @@ df3<- df1 %>%
         mutate(proportion.private.students = (private/sum(public, mixed, private))*100) %>%
         left_join(df2, by = "year") %>%
         ungroup() 
+
+## Government Expenditure on Education PPP Dollars
+dfGDP1 <- dfGDP %>%
+        filter(Country.Name == "Ecuador") %>%
+        pivot_longer(cols = c(5:length(names(dfGDP))), names_to = "year") %>%
+        mutate(year = as.integer(str_remove(year, "^X"))) %>%
+        filter(year %in% 2009:2019) %>%
+        select(year, "GDP_PPP" = value)
+
+dfEDSP1 <- dfEDSP %>%
+        filter(Country.Name == "Ecuador") %>%
+        pivot_longer(cols = c(5:length(names(dfGDP))), names_to = "year") %>%
+        mutate(year = as.integer(str_remove(year, "^X"))) %>%
+        filter(year %in% 2009:2019) %>%
+        left_join(dfGDP1, by = "year") %>%
+        select(year, "PROP_SPEND_EDU" = value, GDP_PPP) %>%
+        mutate(year = as.Date(paste0(year, "-05-01"))) 
+
+df4 <- df3 %>%
+        left_join(dfEDSP1, by = "year")
 ```
 
 step 2: Convert data to an object of class **ts**
 ```{r}
-tsdf <- xts(x = df3[, 5:6], order.by = df3$year) # Number of observations per unit time
+tsdf <- xts(x = df4[, 5:8], order.by = df3$year) # Number of observations per unit time
 ```
 
 Step 3: Exploratory analysis of the data
-The two  graphs suggest a negative correlation between the two variables. It must be acknowledged here that this correlation could be spurious. For example, Wooldridge stresses that any variables with a systematic negative and positive time trend can easily be misinterpreted to influence one another (p. 365). Such time trends can be accounted for by detrending or deseasonalising the data, i.e. by including time as an independent variable in the regression model. Nevertheless, time trends are plausibly irrelevant in this particular analysis; in the limited set of observations available, neither variable shows a clear linear or seasonal pattern over time. For this reason, I assume that the data need not be detrended nor deseasonalised. 
+The two first graphs suggest a negative correlation between the two variables. It must be acknowledged here that this correlation could be spurious. For example, Wooldridge stresses that any variables with a systematic negative and positive time trend can easily be misinterpreted to influence one another (p. 365). Such time trends can be accounted for by detrending or deseasonalising the data, i.e. by including time as an independent variable in the regression model. Nevertheless, time trends are plausibly irrelevant in this particular analysis; in the limited set of observations available, neither variable shows a clear linear or seasonal pattern over time. For this reason, I assume that the data need not be detrended nor deseasonalised.
+
 
 ```{r}
-par(mfrow = c(1,2))
+par(mfrow = c(2,2))
 plot(as.zoo(tsdf[, 1]),
-     col = "blue",
+     col = "darkblue",
      lwd = 2,
-     ylab = "Proportion of Private Students",
+     ylab = "Proportion in %",
      xlab = "Date",
      main = "Proportion of Ecuadorian learners\nenrolled in Private Schools",
      cex.main = 1)
 plot(as.zoo(tsdf[, 2]),
-     col = "red",
+     col = "lightblue",
      lwd = 2,
-     ylab = "Average-class-size at\nMedian Public School",
+     ylab = "Students per Teacher",
      xlab = "Date",
-     main = "Class size in Public Schools",
+     main = "Median student:teacher ratio\nin Public Schools",
+     cex.main = 1)
+plot(as.zoo(tsdf[, 3]),
+     col = "lightgrey",
+     lwd = 2,
+     ylab = "Proportion in %",
+     xlab = "Date",
+     main = "Public Expenditure on Education\n Relative to GDP",
+     cex.main = 1)
+plot(as.zoo(tsdf[, 4]),
+     col = "darkgrey",
+     lwd = 2,
+     ylab = "In Dollars",
+     xlab = "Date",
+     main = "Annual GDP PPP",
      cex.main = 1)
 ```
 
